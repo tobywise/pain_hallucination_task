@@ -1,0 +1,18 @@
+Ok, Great!
+Remember:
+If you hold YES button down for a long time, you are very certain that you heard a sound.
+If you hold NO button down for a long time, you are very certain that you DID NOT hear a sound.
+
+PARTICIPANT: PLEASE PRESS A BUTTON TO CONTINUE.
+
+*There is one more difference in this second task:
+On some of the trials, the fixation cross will change into a question mark instead of a checkerboard.
+When that happens, you may or may not hear a voice instead of a tone.
+However, you should still respond the way you did before:
+YES and NO.
+
+PARTICIPANT: PLEASE PRESS A BUTTON TO CONTINUE.
+
+*Ok, let`s practice this as you would in the experiment itself.
+
+PARTICIPANT: PLEASE PRESS A BUTTON TO START A SHORT PRACTICE SESSION

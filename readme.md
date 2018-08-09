@@ -21,4 +21,8 @@ By default, QUEST calibration is run however this can be turned off by uncheckin
 1. Stimulation and checkerboard/question mark stimuli fade in (ramp up period in config file)
 2. Stimulation & visual stimulus intensity held constant (hold period in config)
 3. Stimulation & visual stimuli fade out (ramp down period in config)
-4. Subject makes a response and indicates confidence (maximum allowed response time given in config)
+4. Subject makes a response and indicates confidence (maximum allowed response time given in config
+
+### Changing instructions
+
+Instructions for each stage are given in text files. Instruction blocks to be shown on consecutive screens are separated by asterisks.
