@@ -11,7 +11,6 @@ import warnings
 import matplotlib.pyplot as plt
 from psychopy.iohub import launchHubServer, EventConstants
 
-# TODO start thing
 
 def rgb_convert(rgb):
     return tuple(i * 2 - 1 for i in rgb)
