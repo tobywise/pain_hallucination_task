@@ -10,6 +10,7 @@ import ctypes
 import warnings
 import matplotlib.pyplot as plt
 from psychopy.iohub import launchHubServer, EventConstants
+import serial
 
 
 def rgb_convert(rgb):
@@ -32,7 +33,7 @@ class ParallelPort(object):
         """
 
         try:
-            self._parallel = ctypes.WinDLL('simpleio.dll')
+            self._port = serial.Serial("COM1", 9600)
             self.test = False
         except:
             self.test = True
@@ -45,22 +46,19 @@ class ParallelPort(object):
         # Used for turning on and off
         self.status = True
 
-        # Send 0 when initialising
-        if not self.test:
-            self._parallel.outp(self.port, self.value)
-
-
     def setData(self, data=0):
 
         if data != self.value:
 
             if not self.test and self.status:
-                self._parallel.outp(self.port, data)
+                self._port.write(data)
+                self._port.flush()
+                self._port.close()
                 if self.verbose:
-                    print "-- Sending value {0} to parallel port -- ".format(data)
+                    print("-- Sending value {0} to parallel port -- ".format(data))
             else:
                 if self.verbose:
-                    print "-- Sending value {0} to parallel port -- ".format(data)
+                    print("-- Sending value {0} to parallel port -- ".format(data))
 
             self.value = data
 
@@ -342,8 +340,8 @@ class PainConditoningTask(object):
         # Loop through sessions
         for session in range(self.config['task_settings']['n_sessions']):
 
-            print "Session {0} / {1}\n" \
-                  "-----------------".format(session + 1, self.config['task_settings']['n_sessions'])
+            print("Session {0} / {1}\n" \
+                  "-----------------".format(session + 1, self.config['task_settings']['n_sessions']))
 
             # Loop through blocks
             for i in range(block_number, block_number + self.config['task_settings']['n_blocks']):
@@ -369,8 +367,8 @@ class PainConditoningTask(object):
 
         for i in range(n_trials):  # TRIAL LOOP - everything in here is repeated each trial
 
-            print "Trial {0} / {1}\n" \
-                  "Detection probability = {2}".format(i + 1, n_trials, levels[i] * 25)
+            print("Trial {0} / {1}\n" \
+                  "Detection probability = {2}".format(i + 1, n_trials, levels[i] * 25))
 
             # Get stimulation level for this trial
             stim_level = self.detection_levels[levels[i]]
@@ -394,12 +392,12 @@ class PainConditoningTask(object):
 
         for i in range(n_trials):  # TRIAL LOOP - everything in here is repeated each trial
 
-            print "Trial {0} / {1}\n".format(i + 1, n_trials)
+            print("Trial {0} / {1}\n".format(i + 1, n_trials))
 
             # Get stimulation level for this trial
 
-            print levels[i]
-            print self.practice_levels
+            print(levels[i])
+            print(self.practice_levels)
             stim_level = self.practice_levels[levels[i]]
 
             trial = ConditioningTrial(self, i, True, stim_level)
@@ -408,17 +406,17 @@ class PainConditoningTask(object):
 
     def run_quest(self, n_trials=10, start=20, start_sd=10, maxvalue=40, beta=3.5, delta=0.01, gamma=0.01, grain=0.01):
 
-        print "RUNNING QUEST\n" \
-              "-------------\n"
+        print("RUNNING QUEST\n" \
+              "-------------\n")
 
         quest = data.QuestHandler(start, start_sd, pThreshold=0.75, nTrials=n_trials, minVal=0, maxVal=maxvalue,
                                   beta=beta, delta=delta, gamma=gamma, grain=grain)
 
         for n, stim_level in enumerate(quest):
 
-            print "Calibration trial {0} / {1}\n" \
+            print("Calibration trial {0} / {1}\n" \
                   "Stimulation level = {2}\n" \
-                  "-----------------------------".format(n + 1, n_trials, stim_level)
+                  "-----------------------------".format(n + 1, n_trials, stim_level))
 
             response = None
 
@@ -429,9 +427,9 @@ class PainConditoningTask(object):
 
             # Add the response
             if response:
-                print "Stimulation detected"
+                print("Stimulation detected")
             else:
-                print "Stimulation not detected"
+                print("Stimulation not detected")
 
             quest.addResponse(int(response))
 
@@ -439,10 +437,10 @@ class PainConditoningTask(object):
         p25 = quest.quantile(25)
         p50 = quest.quantile(50)
         p75 = quest.quantile(75)
-        print "25% detection probability level = {0}\n" \
+        print("25% detection probability level = {0}\n" \
               "25% detection probability level = {0}\n" \
               "50% detection probability level = {0}\n" \
-              "75% detection probability level = {0}\n".format(p0, p25, p50, p75)
+              "75% detection probability level = {0}\n".format(p0, p25, p50, p75))
 
         return p0, p25, p50, p75
 
@@ -561,9 +559,9 @@ class PainConditoningTask(object):
         """
 
         if temperature > self.abs_max_temperature:
-            print "!!! WARNING !!!!\n" \
+            print("!!! WARNING !!!!\n" \
                   "Requested temperature exceeds specified maximum " \
-                  "temperature, setting to {0} degrees".format(self.abs_max_temperature)
+                  "temperature, setting to {0} degrees".format(self.abs_max_temperature))
 
         if temperature % 1:
             temperature = temperature + 128 - (temperature % 1)
@@ -673,7 +671,7 @@ class ConditioningTrial(object):
 
             temperature = np.random.normal(mean, sd)
 
-            print "Setting baseline temperature to {0}".format(temperature)
+            print("Setting baseline temperature to {0}".format(temperature))
 
             self.task.trigger_heat(temperature)
 
@@ -909,7 +907,7 @@ class ConditioningTrial(object):
                     self.detected = False
                 if confidence:
                     self.task.confidence_scale.fill_bars(0)
-                print "Trial done"
+                print("Trial done")
 
             # quit if subject pressed scape
             if event.getKeys(["escape", "esc"]):
