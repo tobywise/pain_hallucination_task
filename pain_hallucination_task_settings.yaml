@@ -1,13 +1,17 @@
 
 # Various general settings
+#
+# *** ALL VOLTAGES ARE GIVEN IN mA ***
+#
+
 task_settings:
   n_sessions: 3  # Number of sessions (blocks)
   n_blocks: 5  # Number of blocks per session (mini-block) including catch blocks
   n_confidence_practice: 3  # Number of tries practicing the confidence rating
 
-  # Temperatures used for practice
-  low: 20  # Low temperature
-  high: 50  # High temperature
+  # Voltages used for practice
+  low: 20  # Low voltage
+  high: 50  # High voltage
 
   # Number of trials in practice
   practice_n_stim: 2  # Number of trials where stimulation is given
@@ -31,12 +35,15 @@ task_settings:
   # Catch trials - indicates which trials in the session are catch trials (repeated for each session)
   catch_trials: !!python/tuple [False, False, True, False]
 
+  # If true, the trial ends when the subject makes a response
+  end_on_response: False
+
 # Settings for the QUEST calibration
 quest_settings:
-  n_trials: 20  # Number of calibration trials
-  start_value: 20  # Starting temperature
-  start_sd: 10  # SD of starting temperature
-  max_value: 40  # Maximum temperature
+  n_trials: 25  # Number of calibration trials
+  start_value: 20  # Starting voltage
+  start_sd: 10  # SD of starting voltage
+  max_value: 40  # Maximum voltage
 
   # Weibull function parameters
   beta: 3.5
@@ -44,18 +51,21 @@ quest_settings:
   gamma: 0.01
   grain: 0.01
 
-  # Default detection threshold temperatures - useful if you just want to run the task without calibration
+  # Default detection threshold voltages - useful if you just want to run the task without calibration
   default_p0: 20  # 0% detection threshold
   default_p25: 30  # 25% detection threshold
   default_p50: 40
   default_p75: 50
 
+  # Number of initial trials to ignore
+  n_ignored: 15
+
 # Timings for various aspects of the task
 durations:
   initial_fixation_time: 1
-  ramp_up_time: 2  # Duration of ramp up for pain/visual stimuli
-  hold_time: 1 # Time to sustain stimulation after ramp up
-  ramp_down_time: 2 # Time taken to decrease stimulation
+  ramp_up_time: 0.5  # Duration of ramp up for pain/visual stimuli
+  hold_time: 0.5 # Time to sustain stimulation after ramp up
+  ramp_down_time: 0.5 # Time taken to decrease stimulation
   response_time: 12 # Maximum time given to make a response
 
 # Settings related to visual stimuli
@@ -67,13 +77,20 @@ stimuli:
 
 # Settings for heat stimulation
 stimulation:
-  # Baseline temperature fluctuations
-  baseline_interval: 2  # How frequently the baseline temperature changes
-  baseline_mean: 30  # Mean of baseline temperature
-  baseline_sd: 5  # SD of baseline temperature distribution
 
-  # Maximum temperature - stimulation will never exceed this
-  absolute_maximum_temperature: 60
+  # DAQ settings
+  device: 'Dev1'
+
+  # Baseline voltage fluctuations
+  baseline_interval: 99999999999999  # How frequently the baseline voltage changes
+  baseline_mean: 0  # Mean of baseline voltage
+  baseline_sd: 0  # SD of baseline voltage distribution
+
+  # Maximum voltage in mA - stimulation will never exceed this
+  absolute_maximum_voltage: 25
+
+  # Voltage to use on catch trials
+  catch_intensity: 10
 
 # Text files used for instructions
 instructions:

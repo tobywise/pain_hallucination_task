@@ -10,57 +10,26 @@ import ctypes
 import warnings
 import matplotlib.pyplot as plt
 from psychopy.iohub import launchHubServer, EventConstants
-import serial
-
+import nidaqmx
 
 def rgb_convert(rgb):
     return tuple(i * 2 - 1 for i in rgb)
 
-class ParallelPort(object):
+class fakeAnalogOutputTask():
 
-    """
-    Used to interact with the parallel port. If no parallel port is present, just prints triggers
+    def write(self, value, auto_start=False):
 
-    """
+        print("Writing + {0}".format(value))
 
-    def __init__(self, port=888, verbose=False):
+    def start(self):
 
-        """
-        Parameters
-        ----------
-        Port: Parallel port number
+        print("Starting DAQ")
 
-        """
+    def stop(self):
 
-        try:
-            self._port = serial.Serial("COM1", 9600)
-            self.test = False
-        except:
-            self.test = True
-            warnings.warn("NO PARALLEL PORT FOUND: RUNNING IN TEST MODE")
+        print("stopping DAQ")
 
-        self.port = port
-        self.value = 0
-        self.verbose = verbose
 
-        # Used for turning on and off
-        self.status = True
-
-    def setData(self, data=0):
-
-        if data != self.value:
-
-            if not self.test and self.status:
-                self._port.write(data)
-                self._port.flush()
-                self._port.close()
-                if self.verbose:
-                    print("-- Sending value {0} to parallel port -- ".format(data))
-            else:
-                if self.verbose:
-                    print("-- Sending value {0} to parallel port -- ".format(data))
-
-            self.value = data
 
 class ConfidenceScale(object):
 
@@ -182,6 +151,11 @@ class PainConditoningTask(object):
             self.config = yaml.load(f)
 
         self.quest_settings = self.config['quest_settings']
+        self.quest = None
+
+        # Check quest numbers of trials
+        if self.quest_settings['n_trials'] <= self.quest_settings['n_ignored']:
+            raise ValueError("Number of QUEST trials must be greater than the number of ignored trials")
 
         # ------------------------------------#
         # Subject/task information and saving #
@@ -217,7 +191,7 @@ class PainConditoningTask(object):
         # Data to be saved
         self.data = dict(trial_number=[],  # Trial number
                          stimulation_level=[],  # Detection probability
-                         temperature=[],  # Actual temperature
+                         voltage=[],  # Actual voltage
                          response=[],  # Subject's response
                          confidence=[],  # Confidence rating
                          detected=[],  # Whether or not they detected the stimulus
@@ -239,8 +213,15 @@ class PainConditoningTask(object):
         self.win.mouseVisible = False  # make the mouse invisible
         self.frame_rate = 60
 
-        # Parallel port
-        self.parallel_port = ParallelPort(port=self.config['task_settings']['parallel_port_number'])
+        # DAQ
+        try:
+            device = nidaqmx.libnidaqmx.Device(self.config['stimulation']['device'])
+            device.reset()
+
+            self.analogOutputTask = nidaqmx.analogOutputTask()
+            self.analogOutputTask.create_voltage_channel(name='line0')
+        except:
+            self.analogOutputTask = fakeAnalogOutputTask()
 
         # Keys used for making moves
         # self.response_keys = self.config['response keys']['response_keys']
@@ -286,7 +267,7 @@ class PainConditoningTask(object):
         self.practice_levels = [self.config['task_settings']['low'], self.config['task_settings']['high']]
 
         # Temperature that shouldn't be exceeded
-        self.abs_max_temperature = self.config['stimulation']['absolute_maximum_temperature']
+        self.abs_max_voltage = self.config['stimulation']['absolute_maximum_voltage']
 
 
     def run(self):
@@ -317,7 +298,7 @@ class PainConditoningTask(object):
 
         # Run 3 trials
         for i in range(self.config['task_settings']['n_confidence_practice']):
-            confidence_practice.run(confidence=True)
+            confidence_practice.run(confidence=True, end_on_response=self.config['task_settings']['end_on_response'])
 
         # Practice trials with confidence ratings
         self.main_instructions(self.load_instructions(self.config['instructions']['confidence_practice_instructions']))
@@ -326,11 +307,26 @@ class PainConditoningTask(object):
 
         if self.run_quest:
             # Run QUEST to get detection points
-            self.main_instructions(self.load_instructions(self.config['instructions']['quest_instructions']), continue_keys=self.pain_key)
-            self.detection_levels = self.run_quest(self.quest_settings['n_trials'], self.quest_settings['start_value'],
-                                                   self.quest_settings['start_sd'], self.quest_settings['max_value'],
-                                                   self.quest_settings['beta'], self.quest_settings['delta'],
-                                                   self.quest_settings['gamma'], self.quest_settings['grain'])
+
+            quest_OK = False
+
+            while not quest_OK:
+
+                self.main_instructions(self.load_instructions(self.config['instructions']['quest_instructions']), continue_keys=self.pain_key)
+                self.detection_levels = self.run_quest_procedure(self.quest_settings['n_trials'], self.quest_settings['start_value'],
+                                                       self.quest_settings['start_sd'], self.quest_settings['max_value'],
+                                                       self.quest_settings['beta'], self.quest_settings['delta'],
+                                                       self.quest_settings['gamma'], self.quest_settings['grain'])
+                quest_OK = self.main_instructions(["QUEST OK?\n"
+                                       "Press YES key to continue, NO key to rerun QUEST\n\n"
+                                       "25% detection probability level = {0}\n"
+                                       "25% detection probability level = {0}\n"
+                                       "50% detection probability level = {0}\n"
+                                       "75% detection probability level = {0}\n".format(self.detection_levels[0],
+                                                                                        self.detection_levels[1],
+                                                                                        self.detection_levels[2],
+                                                                                        self.detection_levels[3])],
+                                       continue_keys=[self.pain_key], return_keys=[self.no_pain_key])
 
             # Run task
             self.main_instructions(self.load_instructions(self.config['instructions']['task_instructions']))
@@ -373,12 +369,12 @@ class PainConditoningTask(object):
             # Get stimulation level for this trial
             stim_level = self.detection_levels[levels[i]]
 
-            # If it's a catch trial, reduce the temperature
+            # If it's a catch trial, reduce the voltage
             if catch:
-                stim_level = self.detection_levels[0] - (self.detection_levels[levels[i]] - self.detection_levels[0])
+                stim_level = self.config['stimulation']['catch_intensity']
 
             trial = ConditioningTrial(self, i, True, stim_level)
-            trial.run(catch=catch, confidence=confidence)
+            trial.run(catch=catch, confidence=confidence, end_on_response=self.config['task_settings']['end_on_response'])
             trial.save_data(self.save_path, session, block, levels[i], catch)
 
 
@@ -401,18 +397,18 @@ class PainConditoningTask(object):
             stim_level = self.practice_levels[levels[i]]
 
             trial = ConditioningTrial(self, i, True, stim_level)
-            trial.run(catch=False, confidence=confidence)
+            trial.run(catch=False, confidence=confidence, end_on_response=self.config['task_settings']['end_on_response'])
 
 
-    def run_quest(self, n_trials=10, start=20, start_sd=10, maxvalue=40, beta=3.5, delta=0.01, gamma=0.01, grain=0.01):
+    def run_quest_procedure(self, n_trials=10, start=20, start_sd=10, maxvalue=40, beta=3.5, delta=0.01, gamma=0.01, grain=0.01):
 
         print("RUNNING QUEST\n" \
               "-------------\n")
 
-        quest = data.QuestHandler(start, start_sd, pThreshold=0.75, nTrials=n_trials, minVal=0, maxVal=maxvalue,
+        self.quest = data.QuestHandler(start, start_sd, pThreshold=0.75, nTrials=n_trials, minVal=0, maxVal=maxvalue,
                                   beta=beta, delta=delta, gamma=gamma, grain=grain)
 
-        for n, stim_level in enumerate(quest):
+        for n, stim_level in enumerate(self.quest):
 
             print("Calibration trial {0} / {1}\n" \
                   "Stimulation level = {2}\n" \
@@ -422,8 +418,8 @@ class PainConditoningTask(object):
 
             # Repeat if subject doesn't respond
             while response == None:
-                trial = ConditioningTrial(self, n, True, max_temperature=stim_level)
-                response = trial.run()
+                trial = ConditioningTrial(self, n, True, max_voltage=stim_level)
+                response = trial.run(end_on_response=self.config['task_settings']['end_on_response'])
 
             # Add the response
             if response:
@@ -431,16 +427,17 @@ class PainConditoningTask(object):
             else:
                 print("Stimulation not detected")
 
-            quest.addResponse(int(response))
+            if n >= self.config['quest_settings']['n_ignored']:
+                self.quest.addResponse(int(response))
+                p0 = self.quest.quantile(0)
+                p25 = self.quest.quantile(25)
+                p50 = self.quest.quantile(50)
+                p75 = self.quest.quantile(75)
+                print("25% detection probability level = {0}\n"
+                      "25% detection probability level = {0}\n"
+                      "50% detection probability level = {0}\n"
+                      "75% detection probability level = {0}\n".format(p0, p25, p50, p75))
 
-        p0 = quest.quantile(0)
-        p25 = quest.quantile(25)
-        p50 = quest.quantile(50)
-        p75 = quest.quantile(75)
-        print("25% detection probability level = {0}\n" \
-              "25% detection probability level = {0}\n" \
-              "50% detection probability level = {0}\n" \
-              "75% detection probability level = {0}\n".format(p0, p25, p50, p75))
 
         return p0, p25, p50, p75
 
@@ -512,7 +509,7 @@ class PainConditoningTask(object):
         # waitkeys
         event.waitKeys(maxWait=max_wait, keyList=['space', '1'])
 
-    def main_instructions(self, text_file, continue_keys=None):
+    def main_instructions(self, text_file, continue_keys=None, return_keys=None):
 
         """
         Displays instruction text files for main instructions, training instructions, task instructions
@@ -520,55 +517,60 @@ class PainConditoningTask(object):
         Args:
             text_file: A list of strings
             continue_keys: Keys to continue task
+            return_key: Used to return to something else
 
         Returns:
+            True if continuing, False if returning
 
         """
 
         if continue_keys is not None:
             continue_keys = ['escape', 'esc'] + list(continue_keys)
 
+        if return_keys is not None:
+            return_keys = list(return_keys)
+        else:
+            return_keys = []
+
         if not isinstance(text_file, list):
-            raise TypeError("Input is not a list")
+            raise TypeError("Text input is not a list")
 
         for i in text_file:
             self.instruction_text.text = i
             self.instruction_text.draw()
             self.win.flip()
             core.wait(1)
-            key = event.waitKeys(keyList=continue_keys)
+            key = event.waitKeys(keyList=continue_keys + return_keys)
             if key[0] in ['escape', 'esc']:
                 core.quit()
+            elif key[0] in continue_keys:
+                return True
+            elif key[0] in return_keys:
+                print "Returning"
+                return False
 
-    def send_trigger(self, data, set):
 
-        if not set:
-            self.win.callOnFlip(self.parallel_port.setData, data)
-        else:
-            self.win.callOnFlip(self.parallel_port.setData, 0)
-
-    def trigger_heat(self, temperature):
+    def trigger_shock(self, voltage):
 
         """
         Translated from Matlab code https://github.com/ljchang/CosanlabToolbox/blob/813e4f4e61b0f08281a13fadbf648031e2d5c44d/Matlab/Psychtoolbox/SupportFunctions/TriggerHeat.m
 
         Parameters
         ----------
-        temperature: Temperature in C?
+        voltage: Voltage in mA
 
         """
 
-        if temperature > self.abs_max_temperature:
+        if voltage < 0:
+            voltage = 0
+
+        if voltage / 100 > self.abs_max_voltage:
             print("!!! WARNING !!!!\n" \
-                  "Requested temperature exceeds specified maximum " \
-                  "temperature, setting to {0} degrees".format(self.abs_max_temperature))
+                  "Requested voltage exceeds specified maximum " \
+                  "voltage, setting to {0} degrees".format(self.abs_max_voltage))
 
-        if temperature % 1:
-            temperature = temperature + 128 - (temperature % 1)
-
-        temperature = int(temperature)
-
-        self.send_trigger(bin(temperature)[::-1], False)
+        self.analogOutputTask.write(voltage / 100, auto_start=False)
+        self.analogOutputTask.start()
 
 
 class CheckerBoard(object):
@@ -617,7 +619,7 @@ class CheckerBoard(object):
 
 class ConditioningTrial(object):
 
-    def __init__(self, task, trial_number, stimulation=True, max_temperature=20, baseline_stimulation=True):
+    def __init__(self, task, trial_number, stimulation=True, max_voltage=20, baseline_stimulation=True):
 
         """
         Conditioning trial class
@@ -627,7 +629,7 @@ class ConditioningTrial(object):
         task: Instance of the task class
         trial_number: Trial number
         stimulation: Indicates whether heat stimulation is given - can be used to turn off stimulation
-        max_temperature: Temperature for stimulation
+        max_voltage: Temperature for stimulation
         baseline_stimulation: Whether to have fluctuating baseline stimulation
 
         """
@@ -635,7 +637,7 @@ class ConditioningTrial(object):
         self.task = task
         self.trial_number = trial_number
         self.stimulation = stimulation
-        self.max_temperature = max_temperature
+        self.max_voltage = max_voltage
         self.checkerboard = CheckerBoard(self.task.win, max_alpha=self.task.config['stimuli']['checkerboard_max_alpha'])
         self.pain_response = None
         self.ramp_up = self.task.config['durations']['ramp_up_time']
@@ -656,32 +658,32 @@ class ConditioningTrial(object):
     def baseline_stimulation(self, interval=2, mean=0, sd=1, current_temp=20):
 
         """
-        Adjusts thermode temperature to produce fluctuations at baseline (drawn from a Gaussian distribution)
+        Adjusts thermode voltage to produce fluctuations at baseline (drawn from a Gaussian distribution)
 
         Parameters
         ----------
-        interval: How frequently to adjust the temperature (seconds)
-        mean: Mean of the temperature distribution
-        sd: SD of the temperature distribution
+        interval: How frequently to adjust the voltage (seconds)
+        mean: Mean of the voltage distribution
+        sd: SD of the voltage distribution
         current_temp: Current temperatue of the thermode
 
         """
 
         if not np.round(core.getTime(), 2) % interval:
 
-            temperature = np.random.normal(mean, sd)
+            voltage = np.random.normal(mean, sd)
 
-            print("Setting baseline temperature to {0}".format(temperature))
+            print("Setting baseline voltage to {0}".format(voltage))
 
-            self.task.trigger_heat(temperature)
+            self.task.trigger_shock(voltage)
 
-            return temperature
+            return voltage
 
         else:
             return current_temp
 
 
-    def ramp_stumuli(self, t, catch, start=0, max_temperature=0, start_temp=20, end_temp=None):
+    def ramp_stumuli(self, t, catch, start=0, max_voltage=0, start_temp=20, end_temp=None):
 
         """
         Ramp up and down pain and visual stimuli
@@ -693,7 +695,7 @@ class ConditioningTrial(object):
         t: Current time
         catch: Whether this is a catch trial (bool)
         start: Time when ramping starts
-        max_temperature: Maximum temperature administered in the trial - can be negative
+        max_voltage: Maximum voltage administered in the trial - can be negative
         start_temp: Temperature to start the ramp from
         end_temp: Temperature to return to after stimulation
 
@@ -708,8 +710,8 @@ class ConditioningTrial(object):
             # Percentage of maximum opacity / pain intensity
             percentage = 1. * ((t - start) / float(self.ramp_up))
 
-            # Calculate required temperature increase
-            temperature_diff = max_temperature - start_temp
+            # Calculate required voltage increase
+            voltage_diff = max_voltage - start_temp
 
             # Visual
             if catch:
@@ -727,7 +729,7 @@ class ConditioningTrial(object):
                 self.checkerboard.draw()
 
             # Heat
-            self.task.trigger_heat(start_temp + percentage * temperature_diff)
+            self.task.trigger_shock(start_temp + percentage * voltage_diff)
 
         # Hold
         elif start + self.ramp_up <= t < start + self.ramp_up + self.hold:
@@ -745,8 +747,8 @@ class ConditioningTrial(object):
             # Percentage of maximum opacity / pain intensity
             percentage = 1 - (1. * ((t - (start + self.ramp_up + self.hold)) / float(self.ramp_up)))
 
-            # Calculate required temperature increase
-            temperature_diff = end_temp - max_temperature
+            # Calculate required voltage increase
+            voltage_diff = end_temp - max_voltage
 
             # Visual
             if catch:
@@ -759,7 +761,7 @@ class ConditioningTrial(object):
                 self.checkerboard.draw()
 
             # Heat
-            self.task.trigger_heat(start_temp + percentage * temperature_diff)
+            self.task.trigger_shock(start_temp + percentage * voltage_diff)
 
             self.task.keyboard.clearEvents()  # Ignore responses made in this period
 
@@ -769,7 +771,7 @@ class ConditioningTrial(object):
         self.task.data['session'].append(session)
         self.task.data['block'].append(block)
         self.task.data['stimulation_level'].append(stimulation_level)
-        self.task.data['temperature'].append(self.max_temperature)
+        self.task.data['voltage'].append(self.max_voltage)
         self.task.data['response'].append(self.pain_response)
         self.task.data['detected'].append(self.detected)
         self.task.data['confidence'].append(self.confidence_rating)
@@ -805,9 +807,11 @@ class ConditioningTrial(object):
         detected = None
 
         current_temp = self.baseline_mean
-        self.task.trigger_heat(self.baseline_mean)  # Start off with some stimulation
+        self.task.trigger_shock(self.baseline_mean)  # Start off with some stimulation
 
         # RUN THE TRIAL
+
+        self.task.analogOutputTask.stop()
 
         while continue_trial:
 
@@ -825,7 +829,7 @@ class ConditioningTrial(object):
 
             # Ramp up / down visual and heat stimuli
             self.ramp_stumuli(t, catch, start=self.fixation, start_temp=current_temp, end_temp=current_temp,
-                              max_temperature=self.max_temperature)
+                              max_voltage=self.max_voltage)
 
             # Get response
             if self.fixation + self.ramp_up + self.hold + self.ramp_down <= t < \
@@ -919,7 +923,7 @@ class ConditioningTrial(object):
 class ConfidencePracticeTrial(ConditioningTrial):
 
     def __init__(self, task):
-        super(ConfidencePracticeTrial, self).__init__(task, trial_number=0, stimulation=False, max_temperature=None)
+        super(ConfidencePracticeTrial, self).__init__(task, trial_number=0, stimulation=False, max_voltage=None)
 
         self.task = task
         self.checkerboard = None
@@ -948,4 +952,5 @@ task = PainConditoningTask('pain_hallucination_task_settings.yaml')
 
 # Run the experiment
 task.run()
+task.analogOutputTask.stop()
 
