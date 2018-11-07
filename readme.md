@@ -1,6 +1,6 @@
 ## Pain hallucination task
 
-Pain conditioning variant of the task from Powers et al (Science, 2017) using thermal stimulation, implemented in PsychoPy.
+Pain conditioning variant of the task from Powers et al (Science, 2017) using electrical stimulation, implemented in PsychoPy.
 
 To run from command line, set working directory to the task root directory and run `python pain_hallucination_task.py`
 
@@ -26,3 +26,7 @@ By default, QUEST calibration is run however this can be turned off by uncheckin
 ### Changing instructions
 
 Instructions for each stage are given in text files. Instruction blocks to be shown on consecutive screens are separated by asterisks.
+
+### Requirements
+
+Requires PyLibNIDAQmx (https://github.com/pearu/pylibnidaqmx) for DAQ interface
