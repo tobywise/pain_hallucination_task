@@ -29,4 +29,5 @@ Instructions for each stage are given in text files. Instruction blocks to be sh
 
 ### Requirements
 
-Requires PyLibNIDAQmx (https://github.com/pearu/pylibnidaqmx) for DAQ interface
+Requires PyLibNIDAQmx (https://github.com/pearu/pylibnidaqmx) for driver interface & NI-DAQmx (http://www.ni.com/download/ni-daqmx-18.0/7574/en/) for the DAQ driver
+
