@@ -14,22 +14,29 @@ from psychopy.iohub import launchHubServer
 from psychopy.iohub.constants import EventConstants
 from psychopy import prefs
 import nidaqmx
-
+from scipy.optimize import fsolve
 
 def rgb_convert(rgb):
     return tuple(i * 2 - 1 for i in rgb)
 
 
+def weibull(x, alpha, beta, g, l, threshold):
+    return g + (1 - g - l) * (1 - np.exp(-1. * np.power(10, (beta * (x - alpha))))) - threshold
+
 class fakeAnalogOutputTask():
 
     def write(self, value, auto_start=False):
-        print("Writing + {0}".format(value))
+
+        a = 1  # does nothing
+        # print("Writing + {0}".format(value))
 
     def start(self):
-        print("Starting DAQ")
+        a = 1
+        # print("Starting DAQ")
 
     def stop(self):
-        print("stopping DAQ")
+        a = 1
+        # print("stopping DAQ")
 
 
 class ConfidenceScale(object):
@@ -278,24 +285,24 @@ class PainConditoningTask(object):
 
         # ---------------------------------------------------------------------------------------------------------#
 
-        # Practice trials with yes/no responses
-        self.main_instructions(self.load_instructions(self.config['instructions']['start_instructions']),
-                               continue_keys=self.pain_key)
-        self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
-                                n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=False)
-
-        # Practice confidence ratings
-        self.main_instructions(self.load_instructions(self.config['instructions']['confidence_rating_instructions']))
-        confidence_practice = ConfidencePracticeTrial(self)
-
-        # Run 3 trials
-        for i in range(self.config['task_settings']['n_confidence_practice']):
-            confidence_practice.run(confidence=True)
-
-        # Practice trials with confidence ratings
-        self.main_instructions(self.load_instructions(self.config['instructions']['confidence_practice_instructions']))
-        self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
-                                n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=True)
+        # # Practice trials with yes/no responses
+        # self.main_instructions(self.load_instructions(self.config['instructions']['start_instructions']),
+        #                        continue_keys=self.pain_key)
+        # self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
+        #                         n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=False)
+        #
+        # # Practice confidence ratings
+        # self.main_instructions(self.load_instructions(self.config['instructions']['confidence_rating_instructions']))
+        # confidence_practice = ConfidencePracticeTrial(self)
+        #
+        # # Run 3 trials
+        # for i in range(self.config['task_settings']['n_confidence_practice']):
+        #     confidence_practice.run(confidence=True)
+        #
+        # # Practice trials with confidence ratings
+        # self.main_instructions(self.load_instructions(self.config['instructions']['confidence_practice_instructions']))
+        # self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
+        #                         n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=True)
 
         if self.run_quest:
             # Run QUEST to get detection points
@@ -422,19 +429,8 @@ class PainConditoningTask(object):
             dict({'label': 'staircase_2'}.items() + conditions.items()),
         ]
         self.quest = data.MultiStairHandler(stairType='quest', method='random', conditions=self.conditions)
-        t1 = self.quest.staircases[0].mean()
-        t2 = self.quest.staircases[1].mean()
-        sd1 = self.quest.staircases[0].sd()
-        sd2 = self.quest.staircases[1].sd()
-        beta1 = contrib.quest.QuestObject.beta(self.quest.staircases[0])
-        beta1 = contrib.quest.QuestObject.beta(self.quest.staircases[1])
 
-        t_mean = (t1 + t2) / 2
-        beta_mean = (beta1 + beta2) / 2
-
-        fit = data.FitWeibull(t_mean, beta_mean, sems=1 / n_trials)
-
-        for n, stim_level in enumerate(self.quest):
+        for n, (stim_level, condition) in enumerate(self.quest):
 
             print("Calibration trial {0} / {1}\n" \
                   "Stimulation level = {2}\n" \
@@ -455,17 +451,33 @@ class PainConditoningTask(object):
 
             if n >= self.config['quest_settings']['n_ignored']:
                 self.quest.addResponse(int(response))
-                p0 = fit.inverse(0)
-                p25 = fit.inverse(.25)
-                p50 = fit.inverse(.50)
-                p75 = fit.inverse(.75)
-                print("1% detection probability level = {0}\n"
-                      "25% detection probability level = {1}\n"
-                      "50% detection probability level = {2}\n"
-                      "75% detection probability level = {3}\n".format(self.quest.quantile(0.01),
-                                                                       self.quest.quantile(.25),
-                                                                       self.quest.quantile(.5),
-                                                                       self.quest.quantile(.75)))
+
+        t1 = self.quest.staircases[0].mean()
+        t2 = self.quest.staircases[1].mean()
+        sd1 = self.quest.staircases[0].sd()
+        sd2 = self.quest.staircases[1].sd()
+
+        self.quest.staircases[0]._quest.beta_analysis()
+        self.quest.staircases[1]._quest.beta_analysis()
+
+        beta1 = self.quest.staircases[0]._quest.beta
+        beta2 = self.quest.staircases[1]._quest.beta
+
+        t_mean = np.array(np.mean([t1, t2]))
+        beta_mean = np.array(np.mean([beta1, beta2]))
+
+        p0 = fsolve(weibull, 10, (t_mean, beta_mean, 0.01, 0.01, 0.05))
+        p25 = fsolve(weibull, 10, (t_mean, beta_mean, 0.01, 0.01, 0.25))
+        p50 = fsolve(weibull, 10, (t_mean, beta_mean, 0.01, 0.01, 0.5))
+        p75 = fsolve(weibull, 10, (t_mean, beta_mean, 0.01, 0.01, 0.75))
+
+        print("1% detection probability level = {0}\n"
+              "25% detection probability level = {1}\n"
+              "50% detection probability level = {2}\n"
+              "75% detection probability level = {3}\n".format(p0[0],
+                                                               p25[0],
+                                                               p50[0],
+                                                               p75[0]))
 
         return p0, p25, p50, p75
 

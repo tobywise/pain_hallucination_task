@@ -55,7 +55,7 @@ quest_settings:
   default_p75: 50
 
   # Number of initial trials to ignore
-  n_ignored: 10
+  n_ignored: 0
 
 # Timings for various aspects of the task
 durations:
@@ -63,7 +63,7 @@ durations:
   ramp_up_time: 0.2  # Duration of ramp up for pain/visual stimuli
   hold_time: 0.5 # Time to sustain stimulation after ramp up
   ramp_down_time: 0.15 # Time taken to decrease stimulation
-  response_time: 2 # Maximum time given to make a response
+  response_time: 1 # Maximum time given to make a response
 
 # Settings related to visual stimuli
 stimuli:
@@ -111,4 +111,4 @@ response_keys:
 # Nice fonts because I hate arial
 fonts:
   font_path: 'fonts/OpenSans-Regular.ttf'
-font_name: 'Open Sans'
+  font_name: 'Open Sans'
