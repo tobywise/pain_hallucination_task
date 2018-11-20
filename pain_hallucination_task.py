@@ -290,19 +290,19 @@ class PainConditoningTask(object):
         #                        continue_keys=self.pain_key)
         # self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
         #                         n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=False)
-        #
-        # # Practice confidence ratings
-        # self.main_instructions(self.load_instructions(self.config['instructions']['confidence_rating_instructions']))
-        # confidence_practice = ConfidencePracticeTrial(self)
-        #
-        # # Run 3 trials
-        # for i in range(self.config['task_settings']['n_confidence_practice']):
-        #     confidence_practice.run(confidence=True)
-        #
-        # # Practice trials with confidence ratings
-        # self.main_instructions(self.load_instructions(self.config['instructions']['confidence_practice_instructions']))
-        # self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
-        #                         n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=True)
+
+        # Practice confidence ratings
+        self.main_instructions(self.load_instructions(self.config['instructions']['confidence_rating_instructions']))
+        confidence_practice = ConfidencePracticeTrial(self)
+
+        # Run 3 trials
+        for i in range(self.config['task_settings']['n_confidence_practice']):
+            confidence_practice.run(confidence=True, catch=True)
+
+        # Practice trials with confidence ratings
+        self.main_instructions(self.load_instructions(self.config['instructions']['confidence_practice_instructions']))
+        self.run_practice_block(n_stim=self.config['task_settings']['practice_n_stim'],
+                                n_no_stim=self.config['task_settings']['practice_n_no_stim'], confidence=True)
 
         if self.run_quest:
             # Run QUEST to get detection points
@@ -660,58 +660,96 @@ class ConditioningTrial(object):
         self.max_voltage = max_voltage
         self.checkerboard = CheckerBoard(self.task.win, max_alpha=self.task.config['stimuli']['checkerboard_max_alpha'])
         self.pain_response = None
+        self.ramp_up = self.task.config['durations']['ramp_up_time']
         self.hold = self.task.config['durations']['hold_time']
+        self.ramp_down = self.task.config['durations']['ramp_down_time']
         self.fixation = self.task.config['durations']['initial_fixation_time']
+        self.bar_time = self.task.config['durations']['bar_fill_time']
 
         self.confidence_rating = None
 
         self.task.keyboard.clearEvents()
 
-    def stimuli(self, t, catch, start=0, max_voltage=50, start_volt=0, end_volt=None):
+    def ramp_stumuli(self, t, catch, start=0, max_voltage=0, start_temp=0, end_temp=None):
 
         """
+        Ramp up and down pain and visual stimuli
+
+        Ramp up > Hold > Ramp down
+
         Parameters
         ----------
         t: Current time
         catch: Whether this is a catch trial (bool)
-        start: Time when trial starts
+        start: Time when ramping starts
         max_voltage: Maximum voltage administered in the trial - can be negative
+        start_temp: Temperature to start the ramp from
+        end_temp: Temperature to return to after stimulation
+
         """
 
         # Always show fixation
         self.task.fixation.draw()
 
-        # Trigger Trial
-        if start < t < start + self.hold:
+        # Ramp up
+        if start < t < start + self.ramp_up:
 
+            # Percentage of maximum opacity / pain intensity
+            percentage = 1. * ((t - start) / float(self.ramp_up))
+
+            # Calculate required voltage increase
+            voltage_diff = max_voltage - start_temp
+
+            # Visual
             if catch:
-                # highA = sound.Sound('A', octave=3, secs=0.3, stereo=False)
-                # highA.setVolume(1)
-                # highA.play()
-                self.task.question_mark.opacity = 1
+
+                self.task.question_mark.opacity = percentage
+
+                # Stupid way to make the opacity change actually happen because PsychoPy is stupid
                 self.task.question_mark.text = ''
                 self.task.question_mark.text = '?'
                 self.task.question_mark.draw()
 
             else:
 
-                self.task.trigger_shock(max_voltage)
+                self.checkerboard.stim.opacities = percentage * self.task.config['stimuli']['checkerboard_max_alpha']
+                self.checkerboard.draw()
+
+            # Heat
+            self.task.trigger_shock(start_temp + percentage * voltage_diff)
+
+        # Hold
+        elif start + self.ramp_up <= t < start + self.ramp_up + self.hold:
+
+            if catch:
+                self.task.question_mark.opacity = 1
+                self.task.question_mark.draw()
+            else:
                 self.checkerboard.stim.opacities = self.task.config['stimuli']['checkerboard_max_alpha']
                 self.checkerboard.draw()
 
-        # Shut down
-        elif start + self.hold <= t:
+        # Ramp down
+        elif start + self.ramp_up + self.hold <= t < start + self.ramp_up + self.hold + self.ramp_down:
 
+            # Percentage of maximum opacity / pain intensity
+            percentage = 1 - (1. * ((t - (start + self.ramp_up + self.hold)) / float(self.ramp_up)))
+
+            # Calculate required voltage increase
+            voltage_diff = end_temp - max_voltage
+
+            # Visual
             if catch:
-                self.task.question_mark.opacity = 0
+                self.task.question_mark.opacity = percentage
                 self.task.question_mark.text = ''
                 self.task.question_mark.text = '?'
                 self.task.question_mark.draw()
             else:
-                self.checkerboard.stim.opacities = 0 * self.task.config['stimuli']['checkerboard_max_alpha']
+                self.checkerboard.stim.opacities = percentage * self.task.config['stimuli']['checkerboard_max_alpha']
                 self.checkerboard.draw()
 
-            self.task.trigger_shock(max_voltage - max_voltage)
+            # Heat
+            self.task.trigger_shock(start_temp + percentage * voltage_diff)
+
             self.task.keyboard.clearEvents()  # Ignore responses made in this period
 
     def save_data(self, save_path, session=0, block=0, stimulation_level=0, catch=False):
@@ -762,19 +800,24 @@ class ConditioningTrial(object):
             t = self.task.clock.getTime()  # get the time
 
             # Present stimuli
-            self.stimuli(t, catch, start=self.fixation, max_voltage=self.max_voltage)
+            self.ramp_stumuli(t, catch, start=self.fixation, start_temp=0, end_temp=0,
+                              max_voltage=self.max_voltage)
 
             # Get response
             if self.fixation + self.hold <= t < \
                     self.fixation + self.hold + \
                     self.task.config['durations']['response_time']:  # if we're after the stimulus presentation
 
+                print self.trial_number, t
                 # Get keybaord events
                 keys = self.task.keyboard.getEvents()
+                print keys
 
                 # If no key is pressed yet, show fixation cross
                 if not len(keys) and key_pressed is None:
+                    print "AAA"
                     self.task.fixation.draw()
+
 
                 # Otherwise, show the confidence rating scale or just get responses and move on for binary trials
                 else:
@@ -817,7 +860,7 @@ class ConditioningTrial(object):
 
                     # Reset the confidence scale
                     if key_pressed is not None and confidence:
-                        self.task.confidence_scale.fill_bars(int(np.floor(core.getTime() - key_pressed[1])))
+                        self.task.confidence_scale.fill_bars(int(np.floor((core.getTime()- key_pressed[1])  * (1. / self.bar_time))))
 
             # flip to draw everything
             self.task.win.flip()
@@ -831,7 +874,9 @@ class ConditioningTrial(object):
                 if confidence:
                     self.confidence_rating = self.task.confidence_scale.confidence_rating
 
-                if self.pain_response == True and self.stimulation == True:
+                if self.pain_response is None:
+                    return None
+                elif self.pain_response == True and self.stimulation == True:
                     self.detected = True
                 else:
                     self.detected = False
@@ -854,8 +899,11 @@ class ConfidencePracticeTrial(ConditioningTrial):
         self.task = task
         self.checkerboard = None
         self.pain_response = None
+        self.ramp_up = 0
         self.hold = 0
+        self.ramp_down = 0
         self.fixation = 0
+        self.bar_time = self.task.config['durations']['bar_fill_time']
 
         self.task.keyboard.clearEvents()
 

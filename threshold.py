@@ -123,7 +123,7 @@ class CrappyThresholdEstimator:
             raise ValueError("Response should be 0 or 1")
 
         else:
-            self.responses.append(response)
+            self.responses.append(int(response))
             return True
 
     def __iter__(self):
