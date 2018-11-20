@@ -109,7 +109,6 @@ class CrappyThresholdEstimator:
             intensity = self.min
 
         self.intensities.append(intensity)
-        print np.mean(self.responses)
 
         return intensity
 
